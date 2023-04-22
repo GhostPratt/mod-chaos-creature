@@ -94,9 +94,7 @@ public:
         advance(itemlistFront, distr(gen));
         int item = *itemlistFront;
 
-        uint32 x = player->GetPositionX();
-        uint32 y = player->GetPositionY();
-        uint32 z = player->GetPostionZ();
+        Position oldpos = GetPostion();
         handler->SendSysMessage(std::to_string(x, y, z));
 
 

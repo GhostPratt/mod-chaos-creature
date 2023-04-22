@@ -94,7 +94,7 @@ public:
         advance(itemlistFront, distr(gen));
         int item = *itemlistFront;
 
-        float xpos = player->GetPositionX()
+        float xpos = player->GetPositionX();
         handler->SendSysMessage(std::to_string(x, y, z));
 
 

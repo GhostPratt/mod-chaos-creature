@@ -2,28 +2,106 @@
  * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license: https://github.com/azerothcore/azerothcore-wotlk/blob/master/LICENSE-AGPL3
  */
 
+#include "list"
+#include "string"
+#include "random"
+
+using namespace std;
+
 #include "ScriptMgr.h"
 #include "Player.h"
 #include "Config.h"
 #include "Chat.h"
+#include "Configuration/Config.h"
+#include "Creature.h"
+
+using namespace Acore::ChatCommands;
 
 // Add player scripts
-class MyPlayer : public PlayerScript
+class ChaosCreature : public PlayerScript
 {
 public:
-    MyPlayer() : PlayerScript("MyPlayer") { }
+    ChaosCreature() : PlayerScript("ChaosCreature") {}
 
     void OnLogin(Player* player) override
     {
-        if (sConfigMgr->GetOption<bool>("MyModule.Enable", false))
-        {
-            ChatHandler(player->GetSession()).SendSysMessage("Hello World from Skeleton-Module!");
-        }
+
+    }
+    void OnLevelChanged(Player* player, uint8 oldLevel) override
+    {
+
     }
 };
 
-// Add all scripts in one
-void AddMyPlayerScripts()
+class ChaosCreatureCommand : public CommandScript
 {
-    new MyPlayer();
+public:
+    ChaosCreatureCommand(): CommandScript("ChaosCreatureCommand") {}
+
+    ChatCommandTable GetCommands() const override
+    {
+        static ChatCommandTable ChaosCreatureCommandTable =
+                {
+                        {"mob", HandleChaosCreatureSelCommand, SEC_ADMINISTRATOR, Console::Yes},
+                };
+        static ChatCommandTable ChaosCommandBaseTable =
+                {
+                        {"chaos", ChaosCommandTable},
+                };
+        return ChaosCommandBaseTable;
+    }
+
+    static bool HandleChaosCreatureSelCommand(ChatHandler *handler)
+    {
+        Player *player = handler->GetSession()->GetPlayer();
+
+        if(!player)
+            return false;
+
+        if (player->IsInCombat())
+        {
+            handler->SendSysMessage("You can't use this command while in combat!");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+        QueryResult result = WorldDatabase.Query("SELECT entry FROM creature_template");
+
+        if (!result)
+        {
+            handler->SendSysMessage("Query Failed");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+        list<int> itemlist;
+        if (result)
+        {
+            do
+            {
+                int entry = result->Fetch()[0].Get<uint32>();
+                itemlist.emplace_back(entry);
+            } while (result->NextRow());
+        }
+
+        int size = itemlist.size();
+        random_device rd;
+        mt19937 gen(rd());
+        uniform_int_distribution<> distr(0, size);
+        auto itemlistFront = itemlist.begin();
+        advance(itemlistFront, distr(gen));
+        int item = *itemlistFront;
+
+
+        handler->SendSysMessage(std::to_string(item));
+        creature->AddToWorld(item)
+
+        return true;
+    }
+};
+
+
+// Add all scripts in one
+void AddChaosCreatureScripts()
+{
+    new ChaosCreature();
+    new ChaosCreatureCommand();
 }

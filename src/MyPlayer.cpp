@@ -97,7 +97,9 @@ public:
         float xpos = player->GetPositionX();
         float ypos = player->GetPositionY();
         float zpos = player->GetPositionZ();
-        handler->SendSysMessage(std::to_string(xpos, ypos, zpos));
+        handler->SendSysMessage(std::to_string(xpos));
+        handler->SendSysMessage(std::to_string(ypos));
+        handler->SendSysMessage(std::to_string(zpos));
 
 
 

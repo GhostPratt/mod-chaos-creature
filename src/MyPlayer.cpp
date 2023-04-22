@@ -46,7 +46,7 @@ public:
                 };
         static ChatCommandTable ChaosCommandBaseTable =
                 {
-                        {"chaos", ChaosCommandTable},
+                        {"chaos", ChaosCreatureCommandTable},
                 };
         return ChaosCommandBaseTable;
     }

@@ -103,7 +103,7 @@ public:
 
 
 // Add all scripts in one
-void AddChaosCreatureScripts()
+void AddChaos_CreatureScripts()
 {
     new ChaosCreature();
     new ChaosCreatureCommand();

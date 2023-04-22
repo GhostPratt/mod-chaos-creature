@@ -95,7 +95,9 @@ public:
         int item = *itemlistFront;
 
         float xpos = player->GetPositionX();
-        handler->SendSysMessage(std::to_string(x, y, z));
+        float ypos = player->GetPositionY();
+        float zpos = player->GetPositionZ();
+        handler->SendSysMessage(std::to_string(xpos, ypos, zpos));
 
 
 

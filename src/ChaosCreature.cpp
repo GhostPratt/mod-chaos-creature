@@ -25,14 +25,7 @@ class ChaosCreature : public PlayerScript
 public:
     ChaosCreature() : PlayerScript("ChaosCreature") {}
 
-    void OnLogin(Player* player) override
-    {
 
-    }
-    void OnLevelChanged(Player* player, uint8 oldLevel) override
-    {
-
-    }
 };
 
 class ChaosCreatureCommand : public CommandScript
@@ -46,11 +39,11 @@ public:
                 {
                         {"mob", HandleChaosCreatureSelCommand, SEC_ADMINISTRATOR, Console::Yes},
                 };
-        static ChatCommandTable ChaosCommandBaseTable =
+        static ChatCommandTable ChaosCreatureCommandBaseTable =
                 {
                         {"chaos", ChaosCreatureCommandTable},
                 };
-        return ChaosCommandBaseTable;
+        return ChaosCreatureCommandBaseTable;
     }
 
     static bool HandleChaosCreatureSelCommand(ChatHandler *handler)

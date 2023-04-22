@@ -93,6 +93,8 @@ public:
         handler->SendSysMessage(std::to_string(xpos));
         handler->SendSysMessage(std::to_string(ypos));
         handler->SendSysMessage(std::to_string(zpos));
+        Postion newpos = player->GetRandomNearPostion(350);
+        handler->SendSysMessage(std::to_string(newpos));
 
 
 

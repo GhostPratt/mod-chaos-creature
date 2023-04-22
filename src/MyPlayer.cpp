@@ -14,6 +14,8 @@ using namespace std;
 #include "Chat.h"
 #include "Configuration/Config.h"
 #include "Creature.h"
+#include "Object.h"
+#include "Postion.h"
 
 using namespace Acore::ChatCommands;
 
@@ -54,6 +56,8 @@ public:
     static bool HandleChaosCreatureSelCommand(ChatHandler *handler)
     {
         Player *player = handler->GetSession()->GetPlayer();
+        Map *map = player->GetMap();
+
 
         if(!player)
             return false;
@@ -90,9 +94,13 @@ public:
         advance(itemlistFront, distr(gen));
         int item = *itemlistFront;
 
+        x = player->GetPositionX();
+        y = player->GetPositionY();
+        z = player->GetPostionZ();
+        handler->SendSysMessage(std::to_string(x, y, z));
 
-        handler->SendSysMessage(std::to_string(item));
-        creature.AddToWorld(item)
+
+
 
         return true;
     }

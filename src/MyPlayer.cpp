@@ -92,7 +92,7 @@ public:
 
 
         handler->SendSysMessage(std::to_string(item));
-        creature->AddToWorld(item)
+        creature.AddToWorld(item)
 
         return true;
     }

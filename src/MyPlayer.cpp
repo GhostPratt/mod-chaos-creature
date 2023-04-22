@@ -15,7 +15,7 @@ using namespace std;
 #include "Configuration/Config.h"
 #include "Creature.h"
 #include "Object.h"
-#include "Postion.h"
+#include "Position.h"
 
 using namespace Acore::ChatCommands;
 

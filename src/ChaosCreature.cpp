@@ -93,8 +93,13 @@ public:
         handler->SendSysMessage(std::to_string(xpos));
         handler->SendSysMessage(std::to_string(ypos));
         handler->SendSysMessage(std::to_string(zpos));
-        Position newpos = player->GetRandomNearPostion(350);
-        handler->SendSysMessage(std::to_string(newpos));
+        uniform_int_distribution<> rad(-350, 350);
+        float randx = xpos + rad(gen);
+        float randy = ypos + rad(gen);
+        float randz = zpos + rad(gen);
+        handler->SendSysMessage(std::to_string(randx));
+        handler->SendSysMessage(std::to_string(randy));
+        handler->SendSysMessage(std::to_string(randz));
 
 
 

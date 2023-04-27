@@ -16,7 +16,7 @@ using namespace std;
 #include "Creature.h"
 #include "Object.h"
 #include "Position.h"
-#include "MapManager.h"
+#include "MapMgr.h"
 
 using namespace Acore::ChatCommands;
 

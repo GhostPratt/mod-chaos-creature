@@ -104,7 +104,7 @@ public:
 
         //sObjectMgr->AddCreatureToGrid(item, sObjectMgr->GetCreatureData(item))
 
-        Creature* creature = sScriptMgr->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
+        Creature* creature = sObjectMgr->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
 
         if (creature)
         {

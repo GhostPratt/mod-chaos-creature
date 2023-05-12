@@ -113,7 +113,7 @@ public:
             //creature->AI()->EnterDefaultState();
         //}
         Creature* creature = new Creature();
-        creature->Create(item, randx, randy, randz, 0.0f, map, 0, 0)
+        creature->Create(item, 0, randx, randy, randz, 0.0f, map, 0, 0)
 
         creature->SetAIState(STATE_WANDER);
         creature->SetDefaultState(STATE_WANDER);

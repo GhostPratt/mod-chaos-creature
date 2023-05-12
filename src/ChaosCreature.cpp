@@ -115,7 +115,7 @@ public:
         Creature* creature = new Creature();
         creature->Create(item, map, 0, item, 0, randx, randy, randz, 0.0f);
 
-        creature->SetWanderDistance(100.0f)
+        creature->SetWanderDistance(100.0f);
 
         creature->PushToWorld();
 

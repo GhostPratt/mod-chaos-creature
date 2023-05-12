@@ -117,8 +117,6 @@ public:
 
         creature->SetWanderDistance(100.0f);
 
-        creature->PushToWorld();
-
 
 
         return true;

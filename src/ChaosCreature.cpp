@@ -102,14 +102,14 @@ public:
         handler->SendSysMessage(std::to_string(randy));
         handler->SendSysMessage(std::to_string(randz));
 
-        //Creature* creature = sMapMgr->GetMap(mapId)->GetCreatureAI(item)->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
+        Creature* creature = sMapMgr->GetMap(mapId)->GetCreatureAI(item)->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
 
-        //if (creature)
-        //{
-            //creature->AI()->SetAIState(STATE_WANDER);
-            //creature->AI()->SetDefaultState(STATE_WANDER);
-            //creature->AI()->EnterDefaultState();
-        //}
+        if (creature)
+        {
+            creature->AI()->SetAIState(STATE_WANDER);
+            creature->AI()->SetDefaultState(STATE_WANDER);
+            creature->AI()->EnterDefaultState();
+        }
 
 
 

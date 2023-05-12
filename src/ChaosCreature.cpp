@@ -102,7 +102,6 @@ public:
         handler->SendSysMessage(std::to_string(randy));
         handler->SendSysMessage(std::to_string(randz));
 
-        Map *map = sMapMgr->FindMap(1,0);
         Creature *creature = new Creature();
         //sObjectMgr->AddCreatureToGrid(item, sObjectMgr->GetCreatureData(item))
 

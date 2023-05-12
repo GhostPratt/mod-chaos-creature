@@ -104,15 +104,22 @@ public:
 
         //sObjectMgr->AddCreatureToGrid(item, sObjectMgr->GetCreatureData(item))
 
-        Creature* creature = sObjectMgr->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
+        //Creature* creature = sObjectMgr->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
 
-        if (creature)
-        {
-            creature->AI()->SetAIState(STATE_WANDER);
-            creature->AI()->SetDefaultState(STATE_WANDER);
-            creature->AI()->EnterDefaultState();
-        }
+        //if (creature)
+        //{
+        //    creature->AI()->SetAIState(STATE_WANDER);
+          //  creature->AI()->SetDefaultState(STATE_WANDER);
+            //creature->AI()->EnterDefaultState();
+        //}
+        Creature* creature = new Creature();
+        creature->Create(item, randx, randy, randz, 0.0f, map, 0, 0)
 
+        creature->SetAIState(STATE_WANDER);
+        creature->SetDefaultState(STATE_WANDER);
+        creature->EnterDefaultState;
+
+        creature->PushToWorld();
 
 
 

@@ -102,7 +102,11 @@ public:
         handler->SendSysMessage(std::to_string(randy));
         handler->SendSysMessage(std::to_string(randz));
 
-        Creature* creature = sMapMgr->GetMap(mapId)->GetCreatureAI(item)->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
+        Map *map = sMapMgr->FindMap(1,0);
+        Creature *creature = new Creature();
+        //sObjectMgr->AddCreatureToGrid(item, sObjectMgr->GetCreatureData(item))
+
+        Creature* creature = GetCreatureAI(item)->SummonCreature(randx, randy, randz, 0.0f, false, 0, 0);
 
         if (creature)
         {

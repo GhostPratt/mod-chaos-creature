@@ -108,7 +108,7 @@ public:
             //creature->AI()->EnterDefaultState();
         //}
         Creature* creature = new Creature();
-        uint32 guildLow = Object:GetGUIDLow();
+        uint32 guildLow = Object::GetGUIDLow();
         creature->Create(guildLow, map, 0, item, 0, randx, randy, randz, 0.0f);
 
         creature->SetWanderDistance(100.0f);

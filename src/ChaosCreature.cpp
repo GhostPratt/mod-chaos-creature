@@ -91,16 +91,11 @@ public:
         float xpos = player->GetPositionX();
         float ypos = player->GetPositionY();
         float zpos = player->GetPositionZ();
-        handler->SendSysMessage(std::to_string(xpos));
-        handler->SendSysMessage(std::to_string(ypos));
-        handler->SendSysMessage(std::to_string(zpos));
         uniform_int_distribution<> rad(-350, 350);
         float randx = xpos + rad(gen);
         float randy = ypos + rad(gen);
         float randz = zpos + rad(gen);
-        handler->SendSysMessage(std::to_string(randx));
-        handler->SendSysMessage(std::to_string(randy));
-        handler->SendSysMessage(std::to_string(randz));
+        handler->SendSysMessage(std::to_string(item));
 
         //sObjectMgr->AddCreatureToGrid(item, sObjectMgr->GetCreatureData(item))
 

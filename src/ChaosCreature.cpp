@@ -108,7 +108,7 @@ public:
             //creature->AI()->EnterDefaultState();
         //}
         Creature* creature = new Creature();
-        creature->SetEntryID(item);
+        creature->SetEntry(item);
         creature->SetPosition(randx, randy, randz, 0.0f);
         //creature->Create(guidLow, map, 0, item, 0, randx, randy, randz, 0.0f);
 

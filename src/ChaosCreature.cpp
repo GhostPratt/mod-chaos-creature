@@ -119,7 +119,7 @@ public:
         //creature->AI()->SetDefaultState(STATE_WANDER);
         //creature->AI()->EnterDefaultState();
 
-        creature->SpawnTemporaryCreature();
+        creature->AddToWorld();
 
 
 

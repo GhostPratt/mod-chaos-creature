@@ -115,9 +115,9 @@ public:
         //creature->Create(guidLow, map, 0, item, 0, randx, randy, randz, 0.0f);
 
         creature->SetWanderDistance(100.0f);
-        creature->AI()->SetAIState(STATE_WANDER);
-        creature->AI()->SetDefaultState(STATE_WANDER);
-        creature->AI()->EnterDefaultState();
+        //creature->AI()->SetAIState(STATE_WANDER);
+        //creature->AI()->SetDefaultState(STATE_WANDER);
+        //creature->AI()->EnterDefaultState();
 
         creature->AddToWorld();
 

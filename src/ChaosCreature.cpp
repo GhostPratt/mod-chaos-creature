@@ -107,7 +107,6 @@ public:
           //  creature->AI()->SetDefaultState(STATE_WANDER);
             //creature->AI()->EnterDefaultState();
         //}
-        handler
         Creature* creature = new Creature();
         creature->SetEntry(item);
         ObjectGuid guid(ObjectGuid::HighType::Creature, OjbectGuid::LowType::Creature, 0, 0);

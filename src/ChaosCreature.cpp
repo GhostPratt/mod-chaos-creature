@@ -109,12 +109,15 @@ public:
         //}
         Creature* creature = new Creature();
         creature->SetEntry(item);
-        ObjectGuid guid(ObjectGuid::HighType::Creature, OjbectGuid::LowType::Creature, 0, 0);
-        creature->Create(guid, map, 0,, item, 0, randx, randy, randz, 0.0f);
+        //ObjectGuid guid(ObjectGuid::HighType::Creature, OjbectGuid::LowType::Creature, 0, 0);
+        //creature->Create(guid, map, 0, item, 0, randx, randy, randz, 0.0f);
         creature->SetPosition(randx, randy, randz, 0.0f);
         //creature->Create(guidLow, map, 0, item, 0, randx, randy, randz, 0.0f);
 
         creature->SetWanderDistance(100.0f);
+        creature->AI()->SetAIState(STATE_WANDER);
+        creature->AI()->SetDefaultState(STATE_WANDER);
+        creature->AI()->EnterDefaultState();
 
         creature->AddToWorld();
 

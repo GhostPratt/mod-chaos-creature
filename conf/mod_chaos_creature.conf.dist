@@ -1,0 +1,93 @@
+[worldserver]
+
+###################################################################################################
+# CHAOS CREATURE
+#
+#    ChaosCreature.Enable
+#        Description: Enable the Chaos Creature challenge module.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+#
+
+ChaosCreature.Enable = 1
+
+#
+#    ChaosCreature.MinLevel
+#        Description: First level at which a level-up starts a chaos challenge.
+#        Default:     10
+#
+
+ChaosCreature.MinLevel = 10
+
+#
+#    ChaosCreature.CreatureCount
+#        Description: Number of random creatures spawned per challenge.
+#        Default:     3
+#
+
+ChaosCreature.CreatureCount = 3
+
+#
+#    ChaosCreature.TimeLimitMinutes
+#        Description: Minutes the player has to kill every spawned creature. When the time runs out
+#                     the creatures despawn and no reward is given.
+#        Default:     15
+#
+
+ChaosCreature.TimeLimitMinutes = 15
+
+#
+#    ChaosCreature.SpawnRadius
+#        Description: Maximum distance (yards) from the player at which creatures are spawned.
+#        Default:     30
+#
+
+ChaosCreature.SpawnRadius = 30
+
+#
+#    ChaosCreature.SpawnMinDistance
+#        Description: Minimum distance (yards) from the player at which creatures are spawned.
+#        Default:     8
+#
+
+ChaosCreature.SpawnMinDistance = 8
+
+#
+#    ChaosCreature.TalentPoints
+#        Description: Permanent bonus talent points rewarded for completing a challenge.
+#        Default:     1
+#
+
+ChaosCreature.TalentPoints = 1
+
+#
+#    ChaosCreature.ReplaceScriptedAI
+#        Description: Give creatures that have a C++ script (dungeon and raid bosses, event NPCs)
+#                     a plain aggressive AI instead. Those scripts assume they run inside their
+#                     instance and can crash the server when spawned in the open world.
+#        Default:     1 - (Enabled, recommended)
+#                     0 - (Disabled)
+#
+
+ChaosCreature.ReplaceScriptedAI = 1
+
+#
+#    ChaosCreature.IncludeCritters
+#        Description: Allow critters (rabbits, squirrels, ...) in the random creature pool.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+#
+
+ChaosCreature.IncludeCritters = 1
+
+#
+#    ChaosCreature.IncludeBosses
+#        Description: Allow world, raid and dungeon bosses in the random creature pool.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+#
+
+ChaosCreature.IncludeBosses = 1
+
+#
+###################################################################################################

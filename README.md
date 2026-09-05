@@ -1,25 +1,54 @@
-# SKELETON - Module template
+# mod-chaos-creature
 
-[English](README.md) | [Español](README_ES.md)
+An [AzerothCore](https://www.azerothcore.org) module that turns every level-up into a hunt.
 
+## How it works
 
-## How to create your own module
+1. When a player reaches level 10 (configurable) or higher, each level-up spawns three random
+   creatures around them. The creatures are drawn from every creature template in the game,
+   critters and bosses included, and scaled to the player's level.
+2. The player is told which creatures appeared and has 15 minutes to kill all of them.
+3. Every kill reports how many creatures are left.
+4. Killing all of them grants one permanent bonus talent point. The point is stored on the
+   character by the core (`characters.extraBonusTalentCount`), so it survives logout and
+   talent resets.
+5. If the timer runs out, the remaining creatures despawn and nothing else happens.
 
-1. Use the script `create_module.sh` located in [`modules/`](https://github.com/azerothcore/azerothcore-wotlk/tree/master/modules) to start quickly with all the files you need and your git repo configured correctly (heavily recommended).
-1. You can then use these scripts to start your project: https://github.com/azerothcore/azerothcore-boilerplates
-1. Do not hesitate to compare with some of our newer/bigger/famous modules.
-1. Edit the `README.md` and other files (`include.sh` etc...) to fit your module. Note: the README is automatically created from `README_example.md` when you use the script `create_module.sh`.
-1. Publish your module to our [catalogue](https://github.com/azerothcore/modules-catalogue).
+Creatures are summoned hostile and aggressive regardless of their normal faction, so friendly
+NPCs from the pool can be attacked. Invisible trigger NPCs, non-attackable or non-selectable
+templates and vehicles are never picked.
 
+Creatures that carry a C++ script (dungeon and raid bosses, event NPCs) are given a plain
+aggressive AI instead of their script, because those scripts assume they run inside their
+instance. This can be turned off with `ChaosCreature.ReplaceScriptedAI = 0` at your own risk.
 
-## How to test your module?
+A level-up while a challenge is still running does not start a second one. Level-ups inside
+battlegrounds and arenas are ignored. Logging out ends the challenge and despawns the creatures.
 
-Disable PCH (precompiled headers) and try to compile. To disable PCH, set `-DNOPCH=1` with Cmake (more info [here](http://www.azerothcore.org/wiki/CMake-options)).
+## Installation
 
-If you forgot some headers, it is time to add them!
+1. Clone this repository into the `modules/` directory of your AzerothCore source tree.
+2. Re-run CMake and build the worldserver.
+3. Copy `conf/mod_chaos_creature.conf.dist` to your config directory as
+   `mod_chaos_creature.conf` (CMake also installs it) and adjust the options.
 
-## Licensing
+No database changes are required.
 
-The default license of the skeleton-module template is the MIT but you can use a different license for your own modules.
+## Configuration
 
-So modules can also be kept private. However, if you need to add new hooks to the core, as well as improving existing ones, you have to share your improvements because the main core is released under the AGPL license. Please [provide a PR](https://www.azerothcore.org/wiki/How-to-create-a-PR) if that is the case.
+| Option | Default | Description |
+| --- | --- | --- |
+| `ChaosCreature.Enable` | `1` | Enable the module. |
+| `ChaosCreature.MinLevel` | `10` | First level whose level-up starts a challenge. |
+| `ChaosCreature.CreatureCount` | `3` | Creatures spawned per challenge. |
+| `ChaosCreature.TimeLimitMinutes` | `15` | Time allowed to kill every creature. |
+| `ChaosCreature.SpawnRadius` | `30` | Maximum spawn distance in yards. |
+| `ChaosCreature.SpawnMinDistance` | `8` | Minimum spawn distance in yards. |
+| `ChaosCreature.TalentPoints` | `1` | Permanent talent points rewarded per success. |
+| `ChaosCreature.ReplaceScriptedAI` | `1` | Replace C++ creature scripts with a plain aggressive AI. |
+| `ChaosCreature.IncludeCritters` | `1` | Allow critters in the pool. |
+| `ChaosCreature.IncludeBosses` | `1` | Allow bosses in the pool. |
+
+## License
+
+Released under the [MIT license](LICENSE).

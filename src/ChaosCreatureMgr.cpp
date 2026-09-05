@@ -1,0 +1,461 @@
+/*
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Affero General Public License as published by the
+ * Free Software Foundation; either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "ChaosCreatureMgr.h"
+#include "Chat.h"
+#include "CombatAI.h"
+#include "Config.h"
+#include "Creature.h"
+#include "CreatureData.h"
+#include "Log.h"
+#include "Map.h"
+#include "ObjectMgr.h"
+#include "Player.h"
+#include "Random.h"
+#include "SharedDefines.h"
+#include "StringFormat.h"
+#include "TemporarySummon.h"
+#include "WorldSession.h"
+#include <algorithm>
+#include <cmath>
+
+namespace
+{
+    constexpr char const* CHAOS_PREFIX = "|cffff4500[Chaos]|r ";
+    constexpr uint32 MAX_SPAWN_ATTEMPTS = 25;
+
+    /**
+     * Spawn-time context for the creature currently being summoned by this module.
+     *
+     * Map::SummonCreature is fully synchronous on the calling map thread, so a
+     * thread-local marker set right before the call is visible to the
+     * SelectLevel / GetCreatureAI hooks that fire during creature creation and
+     * cannot leak into unrelated spawns on other threads.
+     */
+    struct PendingSpawn
+    {
+        bool Active = false;
+        uint32 Entry = 0;
+        uint8 Level = 0;
+    };
+
+    thread_local PendingSpawn s_pendingSpawn;
+
+    std::string JoinNames(std::vector<ChaosChallengeCreature> const& creatures)
+    {
+        std::string result;
+        for (std::size_t i = 0; i < creatures.size(); ++i)
+        {
+            if (i > 0)
+                result += (i + 1 == creatures.size()) ? " and " : ", ";
+
+            result += "|cffffff00" + creatures[i].Name + "|r";
+        }
+        return result;
+    }
+}
+
+uint32 ChaosChallenge::AliveCount() const
+{
+    return static_cast<uint32>(std::count_if(Creatures.begin(), Creatures.end(),
+        [](ChaosChallengeCreature const& c) { return !c.Dead; }));
+}
+
+ChaosCreatureMgr* ChaosCreatureMgr::instance()
+{
+    static ChaosCreatureMgr instance;
+    return &instance;
+}
+
+void ChaosCreatureMgr::LoadConfig()
+{
+    _enabled = sConfigMgr->GetOption<bool>("ChaosCreature.Enable", true);
+    _minLevel = sConfigMgr->GetOption<uint8>("ChaosCreature.MinLevel", 10);
+    _creatureCount = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("ChaosCreature.CreatureCount", 3));
+    uint32 const timeLimitMinutes = sConfigMgr->GetOption<uint32>("ChaosCreature.TimeLimitMinutes", 15);
+    _timeLimitMs = std::max<uint32>(1, timeLimitMinutes) * MINUTE * IN_MILLISECONDS;
+    _spawnRadius = std::max(5.0f, sConfigMgr->GetOption<float>("ChaosCreature.SpawnRadius", 30.0f));
+    _spawnMinDistance = sConfigMgr->GetOption<float>("ChaosCreature.SpawnMinDistance", 8.0f);
+    _spawnMinDistance = std::clamp(_spawnMinDistance, 0.0f, _spawnRadius);
+    _talentPoints = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("ChaosCreature.TalentPoints", 1));
+    _replaceScriptedAI = sConfigMgr->GetOption<bool>("ChaosCreature.ReplaceScriptedAI", true);
+    _includeCritters = sConfigMgr->GetOption<bool>("ChaosCreature.IncludeCritters", true);
+    _includeBosses = sConfigMgr->GetOption<bool>("ChaosCreature.IncludeBosses", true);
+}
+
+bool ChaosCreatureMgr::IsEligibleTemplate(CreatureTemplate const& cinfo) const
+{
+    // Invisible helpers / event controllers can never be found or killed.
+    if (cinfo.HasFlagsExtra(CREATURE_FLAG_EXTRA_TRIGGER))
+        return false;
+
+    if (cinfo.unit_flags & (UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE))
+        return false;
+
+    if (cinfo.VehicleId)
+        return false;
+
+    if (!_includeCritters && cinfo.type == CREATURE_TYPE_CRITTER)
+        return false;
+
+    if (!_includeBosses && (cinfo.rank == CREATURE_ELITE_WORLDBOSS || (cinfo.type_flags & CREATURE_TYPE_FLAG_BOSS_MOB)))
+        return false;
+
+    // Needs at least one display model that is not a trigger model.
+    bool visible = false;
+    for (CreatureModel const& model : cinfo.Models)
+    {
+        CreatureModelInfo const* modelInfo = sObjectMgr->GetCreatureModelInfo(model.CreatureDisplayID);
+        if (modelInfo && !modelInfo->is_trigger)
+        {
+            visible = true;
+            break;
+        }
+    }
+
+    return visible;
+}
+
+void ChaosCreatureMgr::BuildCreaturePool()
+{
+    _pool.clear();
+
+    if (!_enabled)
+        return;
+
+    for (auto const& [entry, cinfo] : *sObjectMgr->GetCreatureTemplates())
+    {
+        if (IsEligibleTemplate(cinfo))
+            _pool.push_back(entry);
+    }
+
+    LOG_INFO("module.chaoscreature", "Chaos Creature: {} creature templates eligible for challenges.", _pool.size());
+
+    if (_pool.empty())
+    {
+        LOG_ERROR("module.chaoscreature", "Chaos Creature: no eligible creature templates found, module disabled.");
+        _enabled = false;
+    }
+}
+
+void ChaosCreatureMgr::SendMessage(Player* player, std::string const& text, bool onScreen)
+{
+    if (!player || !player->GetSession())
+        return;
+
+    ChatHandler(player->GetSession()).SendSysMessage(CHAOS_PREFIX + text);
+
+    if (onScreen)
+        player->GetSession()->SendAreaTriggerMessage(text);
+}
+
+void ChaosCreatureMgr::OnBeforeCreatureSelectLevel(CreatureTemplate const* cinfo, Creature* /*creature*/, uint8& level)
+{
+    if (s_pendingSpawn.Active && cinfo && cinfo->Entry == s_pendingSpawn.Entry)
+        level = s_pendingSpawn.Level;
+}
+
+CreatureAI* ChaosCreatureMgr::GetCreatureAI(Creature* creature)
+{
+    if (!s_pendingSpawn.Active || !creature || creature->GetEntry() != s_pendingSpawn.Entry)
+        return nullptr;
+
+    // Boss and dungeon scripts assume they live inside their instance and
+    // dereference the instance script unconditionally; give our copies a
+    // plain aggressive AI instead so they behave anywhere in the world.
+    if (_replaceScriptedAI && creature->GetScriptId())
+        return new AggressorAI(creature);
+
+    return nullptr;
+}
+
+Creature* ChaosCreatureMgr::SpawnScaledCreature(Player* player, uint32 entry, uint8 level)
+{
+    float const angle = frand(0.0f, 2.0f * static_cast<float>(M_PI));
+    float const distance = frand(_spawnMinDistance, _spawnRadius);
+
+    Position pos = player->GetPosition();
+    player->MovePositionToFirstCollision(pos, distance, angle);
+    pos.SetOrientation(pos.GetAbsoluteAngle(player));
+
+    s_pendingSpawn = { true, entry, level };
+    TempSummon* summon = player->GetMap()->SummonCreature(entry, pos, nullptr, _timeLimitMs);
+    s_pendingSpawn = {};
+
+    if (!summon)
+        return nullptr;
+
+    summon->SetTempSummonType(TEMPSUMMON_TIMED_DESPAWN);
+
+    // Make sure the copy is hostile, targetable and comes for the player.
+    summon->SetFaction(FACTION_MONSTER);
+    summon->ReplaceAllNpcFlags(UNIT_NPC_FLAG_NONE);
+    summon->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC |
+        UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
+    summon->SetReactState(REACT_AGGRESSIVE);
+    summon->SetHomePosition(pos);
+
+    if (summon->AI())
+        summon->AI()->AttackStart(player);
+
+    return summon;
+}
+
+void ChaosCreatureMgr::StartChallenge(Player* player)
+{
+    ObjectGuid const playerGuid = player->GetGUID();
+    uint8 const level = player->GetLevel();
+
+    ChaosChallenge challenge;
+    challenge.MapId = player->GetMapId();
+    challenge.InstanceId = player->GetInstanceId();
+    challenge.Level = level;
+    challenge.RemainingMs = _timeLimitMs;
+
+    uint32 attempts = 0;
+    while (challenge.Creatures.size() < _creatureCount && attempts++ < MAX_SPAWN_ATTEMPTS)
+    {
+        uint32 const entry = _pool[urand(0, _pool.size() - 1)];
+        Creature* creature = SpawnScaledCreature(player, entry, level);
+        if (!creature)
+        {
+            LOG_DEBUG("module.chaoscreature", "Chaos Creature: failed to summon entry {} for player {}", entry,
+                player->GetName());
+            continue;
+        }
+
+        ChaosChallengeCreature info;
+        info.Guid = creature->GetGUID();
+        info.Entry = entry;
+        info.Name = creature->GetName();
+        challenge.Creatures.push_back(std::move(info));
+    }
+
+    if (challenge.Creatures.empty())
+    {
+        LOG_ERROR("module.chaoscreature", "Chaos Creature: could not summon any creature for player {}",
+            player->GetName());
+        return;
+    }
+
+    std::string const names = JoinNames(challenge.Creatures);
+    uint32 const count = challenge.Creatures.size();
+    uint32 const minutes = _timeLimitMs / (MINUTE * IN_MILLISECONDS);
+
+    {
+        std::lock_guard<std::mutex> guard(_lock);
+        for (ChaosChallengeCreature const& c : challenge.Creatures)
+            _creatureOwners[c.Guid] = playerGuid;
+
+        _challenges[playerGuid] = std::move(challenge);
+        ++_activeChallenges;
+    }
+
+    SendMessage(player, Acore::StringFormat("Level {} reached! {} level-{} creature{} appeared nearby: {}.",
+        level, count, level, count == 1 ? " has" : "s have", names), false);
+    SendMessage(player, Acore::StringFormat("Slay {} within {} minute{} to earn {} permanent talent point{}!",
+        count == 1 ? "it" : "them all", minutes, minutes == 1 ? "" : "s", _talentPoints,
+        _talentPoints == 1 ? "" : "s"), true);
+
+    LOG_DEBUG("module.chaoscreature", "Chaos Creature: started challenge for player {} at level {} with {} creatures",
+        player->GetName(), level, count);
+}
+
+void ChaosCreatureMgr::OnPlayerLevelChanged(Player* player, uint8 oldLevel)
+{
+    if (!_enabled || !player || !player->IsInWorld())
+        return;
+
+    uint8 const level = player->GetLevel();
+    if (level <= oldLevel || level < _minLevel)
+        return;
+
+    if (player->InBattleground() || player->InArena())
+        return;
+
+    bool alreadyActive = false;
+    {
+        std::lock_guard<std::mutex> guard(_lock);
+        alreadyActive = _challenges.count(player->GetGUID()) > 0;
+    }
+
+    if (alreadyActive)
+    {
+        SendMessage(player, "You already have an active chaos challenge. Finish it before more chaos finds you!",
+            false);
+        return;
+    }
+
+    StartChallenge(player);
+}
+
+void ChaosCreatureMgr::OnCreatureDeath(Creature* creature)
+{
+    if (!_enabled || !creature)
+        return;
+
+    std::lock_guard<std::mutex> guard(_lock);
+
+    auto ownerItr = _creatureOwners.find(creature->GetGUID());
+    if (ownerItr == _creatureOwners.end())
+        return;
+
+    ObjectGuid const playerGuid = ownerItr->second;
+    _creatureOwners.erase(ownerItr);
+
+    auto challengeItr = _challenges.find(playerGuid);
+    if (challengeItr == _challenges.end())
+        return;
+
+    ChaosChallenge& challenge = challengeItr->second;
+    for (ChaosChallengeCreature& c : challenge.Creatures)
+    {
+        if (c.Guid == creature->GetGUID())
+        {
+            c.Dead = true;
+            break;
+        }
+    }
+
+    uint32 const alive = challenge.AliveCount();
+    if (alive == 0)
+        challenge.Completed = true;
+    else
+        challenge.PendingMessages.push_back(Acore::StringFormat("|cffffff00{}|r slain! {} creature{} left.",
+            creature->GetName(), alive, alive == 1 ? "" : "s"));
+}
+
+void ChaosCreatureMgr::DespawnCreatures(Player* player, ChaosChallenge const& challenge)
+{
+    // Creatures on another map are left to their own summon timer; touching
+    // them from this thread would be unsafe. This is a best-effort cleanup.
+    Map* map = player->GetMap();
+    if (!map || map->GetId() != challenge.MapId || map->GetInstanceId() != challenge.InstanceId)
+        return;
+
+    for (ChaosChallengeCreature const& c : challenge.Creatures)
+    {
+        if (c.Dead)
+            continue;
+
+        if (Creature* creature = map->GetCreature(c.Guid))
+            creature->DespawnOrUnsummon();
+    }
+}
+
+void ChaosCreatureMgr::FinishChallenge(Player* player, ChaosChallenge const& challenge, bool success)
+{
+    if (success)
+    {
+        player->RewardExtraBonusTalentPoints(_talentPoints);
+        player->InitTalentForLevel();
+        player->SaveToDB(false, false);
+
+        SendMessage(player, Acore::StringFormat("Chaos conquered! You have earned {} permanent talent point{}.",
+            _talentPoints, _talentPoints == 1 ? "" : "s"), true);
+
+        LOG_DEBUG("module.chaoscreature", "Chaos Creature: player {} completed the level {} challenge",
+            player->GetName(), challenge.Level);
+        return;
+    }
+
+    DespawnCreatures(player, challenge);
+    SendMessage(player, "Time is up! The chaos creatures have vanished.", true);
+
+    LOG_DEBUG("module.chaoscreature", "Chaos Creature: player {} failed the level {} challenge",
+        player->GetName(), challenge.Level);
+}
+
+void ChaosCreatureMgr::OnPlayerUpdate(Player* player, uint32 diff)
+{
+    if (!_enabled || !player || !player->IsInWorld())
+        return;
+
+    if (_activeChallenges.load(std::memory_order_relaxed) == 0)
+        return;
+
+    std::vector<std::string> messages;
+    ChaosChallenge finished;
+    bool hasFinished = false;
+    bool success = false;
+
+    {
+        std::lock_guard<std::mutex> guard(_lock);
+
+        auto itr = _challenges.find(player->GetGUID());
+        if (itr == _challenges.end())
+            return;
+
+        ChaosChallenge& challenge = itr->second;
+        messages.swap(challenge.PendingMessages);
+
+        if (challenge.Completed)
+        {
+            hasFinished = true;
+            success = true;
+        }
+        else if (challenge.RemainingMs <= diff)
+        {
+            hasFinished = true;
+        }
+        else
+        {
+            challenge.RemainingMs -= diff;
+        }
+
+        if (hasFinished)
+        {
+            for (ChaosChallengeCreature const& c : challenge.Creatures)
+                _creatureOwners.erase(c.Guid);
+
+            finished = std::move(challenge);
+            _challenges.erase(itr);
+            --_activeChallenges;
+        }
+    }
+
+    for (std::string const& message : messages)
+        SendMessage(player, message, false);
+
+    if (hasFinished)
+        FinishChallenge(player, finished, success);
+}
+
+void ChaosCreatureMgr::OnPlayerLogout(Player* player)
+{
+    if (!player)
+        return;
+
+    ChaosChallenge challenge;
+
+    {
+        std::lock_guard<std::mutex> guard(_lock);
+
+        auto itr = _challenges.find(player->GetGUID());
+        if (itr == _challenges.end())
+            return;
+
+        for (ChaosChallengeCreature const& c : itr->second.Creatures)
+            _creatureOwners.erase(c.Guid);
+
+        challenge = std::move(itr->second);
+        _challenges.erase(itr);
+        --_activeChallenges;
+    }
+
+    DespawnCreatures(player, challenge);
+}

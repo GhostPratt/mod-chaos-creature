@@ -44,11 +44,19 @@ struct ChaosChallenge
     uint32 InstanceId = 0;
     uint8 Level = 0;
     uint32 RemainingMs = 0;
+    uint32 HostilityCheckMs = 0;
     bool Completed = false;
     std::vector<ChaosChallengeCreature> Creatures;
     std::vector<std::string> PendingMessages;
 
     [[nodiscard]] uint32 AliveCount() const;
+};
+
+/// A level change that is waiting to settle before it may start a challenge.
+struct ChaosPendingLevelUp
+{
+    uint8 LevelBefore = 0;   // level the character had before the first change
+    uint32 RemainingMs = 0;  // restarted by every further level change
 };
 
 /**
@@ -86,12 +94,16 @@ public:
 private:
     ChaosCreatureMgr() = default;
 
+    void UpdatePendingLevelUp(Player* player, uint32 diff);
+    void TryStartChallenge(Player* player, uint8 levelBefore);
     void StartChallenge(Player* player);
     void FinishChallenge(Player* player, ChaosChallenge const& challenge, bool success);
     void DespawnCreatures(Player* player, ChaosChallenge const& challenge);
     Creature* SpawnScaledCreature(Player* player, uint32 entry, uint8 level);
     [[nodiscard]] bool IsEligibleTemplate(CreatureTemplate const& cinfo) const;
 
+    static void MakeHostile(Creature* creature);
+    static void MarkCreatureDone(ChaosChallenge& challenge, ObjectGuid const& guid, char const* outcome);
     static void SendMessage(Player* player, std::string const& text, bool onScreen);
 
     // Config
@@ -99,6 +111,7 @@ private:
     uint8 _minLevel = 10;
     uint32 _creatureCount = 3;
     uint32 _timeLimitMs = 15 * 60 * 1000;
+    uint32 _levelUpDelayMs = 5 * 1000;
     float _spawnRadius = 30.0f;
     float _spawnMinDistance = 8.0f;
     uint32 _talentPoints = 1;
@@ -108,10 +121,13 @@ private:
 
     std::vector<uint32> _pool;
 
-    std::atomic<uint32> _activeChallenges{0};   // lock-free fast path for the per-player update hook
+    // Lock-free fast paths for the per-player update hook
+    std::atomic<uint32> _activeChallenges{0};
+    std::atomic<uint32> _pendingLevelUpCount{0};
     std::mutex _lock;
     std::unordered_map<ObjectGuid, ChaosChallenge> _challenges;   // player guid -> challenge
     std::unordered_map<ObjectGuid, ObjectGuid> _creatureOwners;   // creature guid -> player guid
+    std::unordered_map<ObjectGuid, ChaosPendingLevelUp> _pendingLevelUps;   // player guid -> settling level-up
 };
 
 #define sChaosCreatureMgr ChaosCreatureMgr::instance()

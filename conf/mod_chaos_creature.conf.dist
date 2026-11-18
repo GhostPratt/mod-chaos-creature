@@ -20,6 +20,17 @@ ChaosCreature.Enable = 1
 ChaosCreature.MinLevel = 10
 
 #
+#    ChaosCreature.LevelUpDelaySeconds
+#        Description: Seconds the character's level has to stay unchanged after a level-up before
+#                     the challenge starts. A challenge only starts when the character ended up
+#                     exactly one level higher than before, so multi-level jumps (bot level
+#                     randomisation, GM commands) do not spawn creatures.
+#        Default:     5
+#
+
+ChaosCreature.LevelUpDelaySeconds = 5
+
+#
 #    ChaosCreature.CreatureCount
 #        Description: Number of random creatures spawned per challenge.
 #        Default:     3
@@ -65,6 +76,8 @@ ChaosCreature.TalentPoints = 1
 #        Description: Give creatures that have a C++ script (dungeon and raid bosses, event NPCs)
 #                     a plain aggressive AI instead. Those scripts assume they run inside their
 #                     instance and can crash the server when spawned in the open world.
+#                     Bosses that despawn and respawn when they reset always get the plain AI,
+#                     whatever this option says.
 #        Default:     1 - (Enabled, recommended)
 #                     0 - (Disabled)
 #

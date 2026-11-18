@@ -23,9 +23,11 @@
 #include "CreatureData.h"
 #include "Log.h"
 #include "Map.h"
+#include "MotionMaster.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "Random.h"
+#include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "StringFormat.h"
 #include "TemporarySummon.h"
@@ -37,6 +39,45 @@ namespace
 {
     constexpr char const* CHAOS_PREFIX = "|cffff4500[Chaos]|r ";
     constexpr uint32 MAX_SPAWN_ATTEMPTS = 25;
+    constexpr uint32 HOSTILITY_CHECK_INTERVAL_MS = 1000;
+
+    // The summons outlive the challenge timer by this much. The challenge
+    // despawns them itself when it expires; their own timer is only the
+    // fallback for an owner who is on another map by then. Without the margin
+    // a summon could expire a tick before the challenge and be mistaken for a
+    // creature that vanished on its own, which counts as slain.
+    constexpr uint32 SUMMON_GRACE_MS = 30 * IN_MILLISECONDS;
+
+    // Every unit flag that stops a player from attacking or selecting a creature.
+    constexpr uint32 BLOCKING_UNIT_FLAGS = UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_ATTACKABLE_1 |
+        UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_NON_ATTACKABLE_2 | UNIT_FLAG_NOT_SELECTABLE |
+        UNIT_FLAG_PACIFIED;
+
+    /**
+     * Plain aggressive AI for chaos creatures.
+     *
+     * The stock evade handling despawns creatures flagged
+     * CREATURE_FLAG_EXTRA_HARD_RESET (most TBC/WotLK bosses) and schedules a
+     * fresh Map::SummonCreature of the same entry. That replacement would be
+     * a different creature: unscaled, with its template faction, without a
+     * despawn timer and unknown to the challenge. Evade like any other
+     * creature instead and stay the same summon.
+     */
+    class ChaosAggressorAI : public AggressorAI
+    {
+    public:
+        explicit ChaosAggressorAI(Creature* creature) : AggressorAI(creature) { }
+
+        void EnterEvadeMode(EvadeReason why) override
+        {
+            if (!_EnterEvadeMode(why))
+                return;
+
+            me->GetMotionMaster()->MoveTargetedHome();
+            Reset();
+            sScriptMgr->OnUnitEnterEvadeMode(me, why);
+        }
+    };
 
     /**
      * Spawn-time context for the creature currently being summoned by this module.
@@ -88,6 +129,7 @@ void ChaosCreatureMgr::LoadConfig()
     _creatureCount = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("ChaosCreature.CreatureCount", 3));
     uint32 const timeLimitMinutes = sConfigMgr->GetOption<uint32>("ChaosCreature.TimeLimitMinutes", 15);
     _timeLimitMs = std::max<uint32>(1, timeLimitMinutes) * MINUTE * IN_MILLISECONDS;
+    _levelUpDelayMs = sConfigMgr->GetOption<uint32>("ChaosCreature.LevelUpDelaySeconds", 5) * IN_MILLISECONDS;
     _spawnRadius = std::max(5.0f, sConfigMgr->GetOption<float>("ChaosCreature.SpawnRadius", 30.0f));
     _spawnMinDistance = sConfigMgr->GetOption<float>("ChaosCreature.SpawnMinDistance", 8.0f);
     _spawnMinDistance = std::clamp(_spawnMinDistance, 0.0f, _spawnRadius);
@@ -178,9 +220,28 @@ CreatureAI* ChaosCreatureMgr::GetCreatureAI(Creature* creature)
     // dereference the instance script unconditionally; give our copies a
     // plain aggressive AI instead so they behave anywhere in the world.
     if (_replaceScriptedAI && creature->GetScriptId())
-        return new AggressorAI(creature);
+        return new ChaosAggressorAI(creature);
+
+    // Hard-reset creatures would replace themselves with an untracked,
+    // permanent copy the first time they evade (see ChaosAggressorAI).
+    if (creature->GetCreatureTemplate()->HasFlagsExtra(CREATURE_FLAG_EXTRA_HARD_RESET))
+        return new ChaosAggressorAI(creature);
 
     return nullptr;
+}
+
+void ChaosCreatureMgr::MakeHostile(Creature* creature)
+{
+    // FACTION_MONSTER is the generic hostile world creature faction: every
+    // player can attack it whatever their race or reputation.
+    if (creature->GetFaction() != FACTION_MONSTER)
+        creature->SetFaction(FACTION_MONSTER);
+
+    if (creature->GetNpcFlags() != UNIT_NPC_FLAG_NONE)
+        creature->ReplaceAllNpcFlags(UNIT_NPC_FLAG_NONE);
+
+    if (creature->HasUnitFlag(UnitFlags(BLOCKING_UNIT_FLAGS)))
+        creature->RemoveUnitFlag(UnitFlags(BLOCKING_UNIT_FLAGS));
 }
 
 Creature* ChaosCreatureMgr::SpawnScaledCreature(Player* player, uint32 entry, uint8 level)
@@ -193,7 +254,7 @@ Creature* ChaosCreatureMgr::SpawnScaledCreature(Player* player, uint32 entry, ui
     pos.SetOrientation(pos.GetAbsoluteAngle(player));
 
     s_pendingSpawn = { true, entry, level };
-    TempSummon* summon = player->GetMap()->SummonCreature(entry, pos, nullptr, _timeLimitMs);
+    TempSummon* summon = player->GetMap()->SummonCreature(entry, pos, nullptr, _timeLimitMs + SUMMON_GRACE_MS);
     s_pendingSpawn = {};
 
     if (!summon)
@@ -202,10 +263,7 @@ Creature* ChaosCreatureMgr::SpawnScaledCreature(Player* player, uint32 entry, ui
     summon->SetTempSummonType(TEMPSUMMON_TIMED_DESPAWN);
 
     // Make sure the copy is hostile, targetable and comes for the player.
-    summon->SetFaction(FACTION_MONSTER);
-    summon->ReplaceAllNpcFlags(UNIT_NPC_FLAG_NONE);
-    summon->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC |
-        UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_PACIFIED));
+    MakeHostile(summon);
     summon->SetReactState(REACT_AGGRESSIVE);
     summon->SetHomePosition(pos);
 
@@ -225,6 +283,7 @@ void ChaosCreatureMgr::StartChallenge(Player* player)
     challenge.InstanceId = player->GetInstanceId();
     challenge.Level = level;
     challenge.RemainingMs = _timeLimitMs;
+    challenge.HostilityCheckMs = HOSTILITY_CHECK_INTERVAL_MS;
 
     uint32 attempts = 0;
     while (challenge.Creatures.size() < _creatureCount && attempts++ < MAX_SPAWN_ATTEMPTS)
@@ -277,11 +336,61 @@ void ChaosCreatureMgr::StartChallenge(Player* player)
 
 void ChaosCreatureMgr::OnPlayerLevelChanged(Player* player, uint8 oldLevel)
 {
-    if (!_enabled || !player || !player->IsInWorld())
+    if (!_enabled || !player)
         return;
 
+    // Do not start anything yet. Bots and GM commands move a character many
+    // levels in one go, either as one big jump or as a burst of single
+    // level-ups; only a level that settles exactly one above where it started
+    // is a real level-up. OnPlayerUpdate decides once the level stops moving.
+    std::lock_guard<std::mutex> guard(_lock);
+
+    auto [itr, inserted] = _pendingLevelUps.try_emplace(player->GetGUID());
+    if (inserted)
+    {
+        itr->second.LevelBefore = oldLevel;
+        ++_pendingLevelUpCount;
+    }
+
+    itr->second.RemainingMs = _levelUpDelayMs;
+}
+
+void ChaosCreatureMgr::UpdatePendingLevelUp(Player* player, uint32 diff)
+{
+    uint8 levelBefore = 0;
+
+    {
+        std::lock_guard<std::mutex> guard(_lock);
+
+        auto itr = _pendingLevelUps.find(player->GetGUID());
+        if (itr == _pendingLevelUps.end())
+            return;
+
+        if (itr->second.RemainingMs > diff)
+        {
+            itr->second.RemainingMs -= diff;
+            return;
+        }
+
+        levelBefore = itr->second.LevelBefore;
+        _pendingLevelUps.erase(itr);
+        --_pendingLevelUpCount;
+    }
+
+    TryStartChallenge(player, levelBefore);
+}
+
+void ChaosCreatureMgr::TryStartChallenge(Player* player, uint8 levelBefore)
+{
     uint8 const level = player->GetLevel();
-    if (level <= oldLevel || level < _minLevel)
+    if (level != levelBefore + 1)
+    {
+        LOG_DEBUG("module.chaoscreature", "Chaos Creature: ignoring level change {} -> {} of player {}, "
+            "not a single level-up", levelBefore, level, player->GetName());
+        return;
+    }
+
+    if (level < _minLevel)
         return;
 
     if (player->InBattleground() || player->InArena())
@@ -321,22 +430,24 @@ void ChaosCreatureMgr::OnCreatureDeath(Creature* creature)
     if (challengeItr == _challenges.end())
         return;
 
-    ChaosChallenge& challenge = challengeItr->second;
-    for (ChaosChallengeCreature& c : challenge.Creatures)
-    {
-        if (c.Guid == creature->GetGUID())
-        {
-            c.Dead = true;
-            break;
-        }
-    }
+    MarkCreatureDone(challengeItr->second, creature->GetGUID(), "slain");
+}
+
+void ChaosCreatureMgr::MarkCreatureDone(ChaosChallenge& challenge, ObjectGuid const& guid, char const* outcome)
+{
+    auto itr = std::find_if(challenge.Creatures.begin(), challenge.Creatures.end(),
+        [&guid](ChaosChallengeCreature const& c) { return c.Guid == guid; });
+    if (itr == challenge.Creatures.end() || itr->Dead)
+        return;
+
+    itr->Dead = true;
 
     uint32 const alive = challenge.AliveCount();
     if (alive == 0)
         challenge.Completed = true;
     else
-        challenge.PendingMessages.push_back(Acore::StringFormat("|cffffff00{}|r slain! {} creature{} left.",
-            creature->GetName(), alive, alive == 1 ? "" : "s"));
+        challenge.PendingMessages.push_back(Acore::StringFormat("|cffffff00{}|r {}! {} creature{} left.",
+            itr->Name, outcome, alive, alive == 1 ? "" : "s"));
 }
 
 void ChaosCreatureMgr::DespawnCreatures(Player* player, ChaosChallenge const& challenge)
@@ -385,10 +496,16 @@ void ChaosCreatureMgr::OnPlayerUpdate(Player* player, uint32 diff)
     if (!_enabled || !player || !player->IsInWorld())
         return;
 
+    if (_pendingLevelUpCount.load(std::memory_order_relaxed) != 0)
+        UpdatePendingLevelUp(player, diff);
+
     if (_activeChallenges.load(std::memory_order_relaxed) == 0)
         return;
 
     std::vector<std::string> messages;
+    std::vector<ObjectGuid> hostilityCheck;
+    uint32 challengeMapId = 0;
+    uint32 challengeInstanceId = 0;
     ChaosChallenge finished;
     bool hasFinished = false;
     bool success = false;
@@ -426,10 +543,62 @@ void ChaosCreatureMgr::OnPlayerUpdate(Player* player, uint32 diff)
             _challenges.erase(itr);
             --_activeChallenges;
         }
+        else if (challenge.HostilityCheckMs > diff)
+        {
+            challenge.HostilityCheckMs -= diff;
+        }
+        else
+        {
+            challenge.HostilityCheckMs = HOSTILITY_CHECK_INTERVAL_MS;
+            challengeMapId = challenge.MapId;
+            challengeInstanceId = challenge.InstanceId;
+            for (ChaosChallengeCreature const& c : challenge.Creatures)
+                if (!c.Dead)
+                    hostilityCheck.push_back(c.Guid);
+        }
     }
 
     for (std::string const& message : messages)
         SendMessage(player, message, false);
+
+    // Creature scripts (SmartAI resets, entry updates, charm removal) put the
+    // template faction and flags back, which can leave a creature the player
+    // is not allowed to attack. Re-apply ours. Only on the player's own map:
+    // creatures elsewhere belong to another map thread.
+    if (!hostilityCheck.empty())
+    {
+        Map* map = player->GetMap();
+        if (map && map->GetId() == challengeMapId && map->GetInstanceId() == challengeInstanceId)
+        {
+            std::vector<ObjectGuid> vanished;
+            for (ObjectGuid const& guid : hostilityCheck)
+            {
+                Creature* creature = map->GetCreature(guid);
+                if (!creature)
+                    vanished.push_back(guid);
+                else if (creature->IsAlive())
+                    MakeHostile(creature);
+            }
+
+            // A creature that left the world without dying (its own script
+            // despawned it) can no longer be killed; count it as slain so the
+            // challenge stays winnable. Completion is picked up next tick.
+            if (!vanished.empty())
+            {
+                std::lock_guard<std::mutex> guard(_lock);
+
+                auto itr = _challenges.find(player->GetGUID());
+                if (itr != _challenges.end())
+                {
+                    for (ObjectGuid const& guid : vanished)
+                    {
+                        _creatureOwners.erase(guid);
+                        MarkCreatureDone(itr->second, guid, "vanished and counts as slain");
+                    }
+                }
+            }
+        }
+    }
 
     if (hasFinished)
         FinishChallenge(player, finished, success);
@@ -444,6 +613,9 @@ void ChaosCreatureMgr::OnPlayerLogout(Player* player)
 
     {
         std::lock_guard<std::mutex> guard(_lock);
+
+        if (_pendingLevelUps.erase(player->GetGUID()))
+            --_pendingLevelUpCount;
 
         auto itr = _challenges.find(player->GetGUID());
         if (itr == _challenges.end())
